@@ -1,0 +1,80 @@
+-- Objetivo dessa extração é mostrar os pedidos de venda que ainda não tiveram carregamentos realizados, ou seja, pedidos de venda não faturados e completos.
+
+WITH
+
+    carregamentos as
+    (
+        SELECT 
+            concat(lips.vgbel,lips.vgpos) as 'Chavecar', 
+            sum(lips.ntgew) as 'Quantidade'
+    
+        FROM prd_product_tc1.lips
+
+        WHERE    
+            lips.werks like 'BR%'
+            and lips.matnr like 'F30%'
+            and lips.posnr like '9%'
+            and lips.vgbel like '1%'
+    
+        GROUP BY Chavecar
+    ),
+    
+    clientes as
+    (
+        SELECT 
+            kna1.kunnr as 'Id_Cliente', 
+            kna1.name1 as 'Cliente'
+    
+        FROM prd_product_tc1.kna1
+    ),
+    
+    pedidos as
+    (
+        SELECT
+            concat(vbap.vbeln,vbap.matnr) as 'Chavemat',
+            concat(vbap.vbeln,vbap.posnr) as 'Chavepos',
+            vbap.werks as 'Planta',
+            vbak.vbeln as 'Id_Pedido',
+            vbak.kunnr as 'Id_Cliente',
+            clientes.Cliente as 'Cliente',
+            vbap.posnr as 'Pos_Item',
+            vbap.matnr as 'Material',
+            vbap.ntgew -
+            CASE
+                WHEN carregamentos.Quantidade IS NULL 
+                    THEN 0
+                        ELSE carregamentos.Quantidade
+                END as 'Quantidade',
+            CASE
+                WHEN vbap.lprio IS NULL THEN "Default"
+                WHEN vbap.lprio = "01" THEN "Diamante"
+                WHEN vbap.lprio = "02" THEN "Estrategico"
+                WHEN vbap.lprio = "03" THEN "AC"
+                WHEN vbap.lprio = "04" THEN "Classic"
+                WHEN vbap.lprio = "05" THEN "Base"
+                    ELSE vbap.lprio 
+            END as 'Prioridade',
+            vbep.mbdat as 'Produção',
+            max(vbep.update_ts),
+            vbak.auart
+    
+        FROM prd_product_tc1.vbak
+
+            LEFT JOIN prd_product_tc1.vbap ON vbak.vbeln = vbap.vbeln
+            LEFT JOIN prd_product_tc1.vbuk ON vbak.vbeln = vbuk.vbeln
+            LEFT JOIN prd_product_tc1.vbep ON concat(vbap.vbeln, vbap.posnr) = concat(vbep.vbeln, vbep.posnr)
+            LEFT JOIN carregamentos ON concat(vbap.vbeln, vbap.posnr) = carregamentos.Chavecar
+            LEFT JOIN clientes on vbak.kunnr = clientes.Id_Cliente
+    
+        WHERE
+            vbak.auart in ("ZB01", "ZB08", "ZB18", "ZB04", "ZB06", "ZBE1")
+            AND vbak.augru IS NOT NULL
+            AND vbak.vkorg LIKE 'BR10'
+            AND vbuk.gbstk != 'C'
+            AND vbap.matnr LIKE 'F30%'
+            AND vbap.abgru IS NULL
+            
+        GROUP BY Chavepos, Chavemat, Planta, Id_Pedido,  Pos_Item, Material, Produção, Quantidade, Id_Cliente, Cliente, Prioridade,vbak.auart
+    )
+    
+SELECT * FROM pedidos WHERE Quantidade > 0 
