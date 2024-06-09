@@ -1,0 +1,101 @@
+-- Objetivo desse codigo é extrair com base nas regras do negocio as materias primas e suas quantidades necessarias para a produção de 1 tonelada de produto acabado para as plantas BR
+
+with
+
+    produtos as
+    (
+    select
+
+        concat(left(marc.matnr,3),"F",right(marc.matnr,length(marc.matnr)-3)) as material
+        ,marc.werks as planta
+        ,makt.maktx as descricao_material
+
+    from prd_product_tc1.marc
+    
+    inner join prd_product_tc1.makt
+        on marc.matnr = makt.matnr
+        and makt.spras = "P"
+
+    inner join prd_product_tc1.mara
+        on marc.matnr = mara.matnr
+    
+    where marc.werks LIKE "BR%"
+    and mara.mstav IS NULL
+    and not marc.matnr like "F30F%"
+    and not marc.matnr like "F30R%"
+    and not marc.matnr like "F30I%"
+    and marc.matnr like "F30%"
+    
+    ),
+    
+    listatecnica as
+    (
+    select
+        
+        produtos.material
+        ,produtos.descricao_material
+        ,mast.werks as planta
+        ,mast.stlnr as listatecnica
+        
+    from prd_product_tc1.mast
+    
+    inner join produtos
+        on mast.matnr = produtos.material
+        and mast.werks = produtos.planta
+        
+    where mast.stlal = "01"
+    ),
+
+    selecaoitem as
+    (
+    select
+
+        stas.stlnr as listatecnica
+        ,stas.stlkn as noh
+        ,max(stas.lkenz) as deletion
+
+    from prd_product_tc1.stas
+
+    inner join listatecnica
+        on stas.stlnr = listatecnica.listatecnica
+    
+    where stas.stlal = "01"
+
+    group by
+        stas.stlnr
+        ,stas.stlkn
+    ),
+    
+    explosao as
+    (
+    select
+    
+         concat(left(listatecnica.material, 3), right(listatecnica.material, length(listatecnica.material) - 4))  as Material               
+        ,listatecnica.material AS Phanton
+        ,listatecnica.descricao_material
+        ,listatecnica.planta
+        ,listatecnica.listatecnica
+        ,stpo.stlkn as noh
+        ,ltrim(stpo.idnrk, "0")  as componente       
+        ,makt.maktx as descricao_componente
+        ,stpo.posnr as item
+        ,stpo.meins as unidade
+        ,stpo.menge as volume
+        
+    from prd_product_tc1.stpo
+
+    inner join listatecnica
+        on stpo.stlnr = listatecnica.listatecnica
+
+    inner join selecaoitem
+        on stpo.stlnr = selecaoitem.listatecnica
+        and stpo.stlkn = selecaoitem.noh
+        
+    inner join prd_product_tc1.makt
+        on stpo.idnrk = makt.matnr
+        and makt.spras = "P"
+
+    where selecaoitem.deletion <> "X"
+    )
+    
+    select * from explosao order by material, planta, item
