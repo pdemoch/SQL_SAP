@@ -1,0 +1,13 @@
+-- Objetivo dessa extração é mostrar as quantidades de materiais que estão em reserva para consumo, ou seja, que já tem ordem de produção em aberto ou liberada.
+
+SELECT werks, matnr, sum(bdmng)-sum(enmng)
+
+FROM prd_product_tc1.resb
+WHERE werks in ("AR10", "BR10", "BR11","BR12","BR20","BR22") 
+and bdart like 'AR'
+and xloek != 'X'
+and kzear NOT IN ("X","N")
+and bdmng > 0
+and not matnr like 'F%'
+
+GROUP BY werks, matnr
