@@ -1,0 +1,110 @@
+-- Objetivo dessa extração é coletar os volumes em transito e em estoque dos materiais, seus estoques de segurança e as plantas produtoras, definindo por categoria hierarquica de nivel 3 a especie das plantas BR
+
+WITH
+    -- Extração da quantidade disponivel em estoque
+    estoque as
+    (
+    SELECT 
+        concat(mard.werks,mard.matnr) as 'Chaveestoque',
+        mard.labst as 'Quantidade'
+        
+    FROM prd_product_tc1.mard
+
+    WHERE 
+        mard.werks LIKE 'BR%'
+        AND mard.matnr LIKE 'F30%'
+        AND mard.matnr NOT LIKE "F30F%"
+        AND mard.matnr NOT LIKE "F30R%"
+        AND mard.matnr NOT LIKE "F30I%"
+        AND mard.lgort IN ("3100")
+    ),
+    
+    -- Extração de dados MRP dos materiais, plantas produtoras e especie dos materiais, junção de valores de estoque, estoque de segurança e estoque em transito
+    material as
+    (
+    SELECT
+        concat(marc.werks,marc.matnr) as 'Chavematerial',
+        marc.werks as 'Planta',
+        marc.matnr as 'Material',
+        makt.maktx as 'Descrição',
+        marc.dispo as 'Planejador',
+        marc.eisbe as 'Estoque_Segurança',
+        marc.trame as 'Transito',
+        marc.beskz as 'Suprimento',
+        marc.bstrf as 'Sacaria',
+        mbew.stprs as 'Preço_Ton',
+        CASE
+           WHEN estoque.quantidade IS NULL THEN 0
+              ELSE estoque.quantidade 
+           END as 'Estoque',
+        marc.bstmi as 'Batida_minima',
+        
+        -- Conversão de valores sobsl para código das plantas fornecedoras: 
+        CASE
+            WHEN marc.sobsl IS NULL then marc.werks 
+            WHEN marc.sobsl = "CC" then "BR22" 
+            WHEN marc.sobsl = "C2" then "BR12" 
+            WHEN marc.sobsl = "C0" then "BR10" 
+            WHEN marc.sobsl = "C1" then "BR11" 
+            WHEN marc.sobsl = "CB" then "BR20" 
+            WHEN marc.sobsl = "50" then "PHAN"
+            WHEN marc.sobsl = "C6" then "BR16"
+            WHEN marc.sobsl = "CY" then "BR10"
+            WHEN concat(marc.werks, marc.sobsl) = "BR1230" then "BRPB"
+            WHEN concat(marc.werks, marc.sobsl) = "BR1130" then "POLI"
+            WHEN concat(marc.werks, marc.sobsl) = "BR2530" then "BN"
+                ELSE marc.sobsl 
+        END as 'Fornecedor',
+    
+        -- Convertendo codigos de especie hierarquia 3 em seu texto descritivo:
+        CASE
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "310" then "Piglets" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "311" then "Sow & Hog" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "320" then "Beef" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "321" then "Dairy" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "322" then "Small Ruminants" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "330" then "Meat Poultry" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "331" then "Layers" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "399" then "Other" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "340" then "Equine" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "342" then "Rabbit" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "344" then "Pet Food" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "345" then "Game Animals" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "350" then "Multi Species" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "360" then "Shrimp" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "361" then "Fish" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "002" then "Breeding Herd" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "003" then "Finishing" 
+            WHEN RIGHT(LEFT(mara.prdha,9),3) = "004" then "Other Swine" 
+                ELSE mara.prdha
+        END as 'Classificação'
+
+    FROM prd_product_tc1.mara
+        LEFT JOIN prd_product_tc1.marc ON marc.matnr = mara.matnr
+        LEFT JOIN prd_product_tc1.mbew ON concat(marc.werks, marc.matnr) = concat(mbew.bwkey, mbew.matnr)
+        LEFT JOIN prd_product_tc1.makt ON marc.matnr = makt.matnr
+        --Conexão com base de estoque por meio de chave Planta e Material
+        LEFT JOIN estoque on concat(marc.werks,marc.matnr) = estoque.Chaveestoque
+    
+    
+    WHERE 
+        --Considera unidades com inicio BR:
+        marc.werks LIKE 'BR%'
+        --Considera somente com inicio F30
+        AND mara.matnr LIKE 'F30%'
+        --Desconsidera Phantom:
+        AND mara.matnr NOT LIKE "F30F%"
+        --Desconsidera Reprocessos:
+        AND mara.matnr NOT LIKE "F30R%"
+        --Desconsidera PI:
+        AND mara.matnr NOT LIKE "F30I%"
+        --Desconsidera bloqueios:
+        AND marc.mmsta IS NULL
+        --Desconsidera marcados para exclusão:
+        AND marc.lvorm != "X"
+        --Considera itens em Português:
+        AND makt.spras = "P"
+        AND marc.dispo IN ('PS1','PS2')
+    )
+
+SELECT * FROM material
