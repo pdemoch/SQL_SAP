@@ -1,119 +1,34 @@
-WITH
-    -- Extração da quantidade disponivel em estoque no deposito 3100 para cada item com inicio F30% por planta BR%
-    estoque as
+--Esse codigo tem como objetivo identificar a linha de produção dos SKUs das plantas que iniciam com BR, se baseando em regras do negocio definidas em suas versões de produção.
+
+SELECT
+    mkal.werks as 'Planta',
+    mkal.matnr as 'Material',
+    right
     (
-    SELECT 
-        concat(mard.werks,mard.matnr) as 'Chaveestoque', 
-        mard.werks as 'Planta', 
-        mard.matnr as 'Material',
-        mard.labst as 'Quantidade', 
-        mard.lgort as 'Deposito'
+        CAST
+        (
+            MIN
+            (
+                CAST
+                (
+                    CONCAT
+                    (
+                        right(left(mkal.verid,2),1), 
+                        right(mkal.verid,1)
+                    ) as INT
+                ) 
+            ) as STRING
+        ),1
+    ) as 'Linha'
+    
+    
+FROM prd_product_tc1.mkal 
 
-    FROM prd_product_tc1.mard 
+WHERE
+    werks LIKE 'BR%'
+    and right(mkal.stlal,1) = '1'
 
-    WHERE 
-        mard.werks LIKE 'BR%'
-        AND mard.matnr LIKE 'F30%'
-        AND mard.matnr NOT LIKE "F30F%"
-        AND mard.matnr NOT LIKE "F30R%"
-        AND mard.matnr NOT LIKE "F30I%"
-        AND mard.lgort IN ("3100")
-    ),
-    
-    -- Extração de dados MRP dos materiais, plantas produtoras e especie dos materiais, junção de valores de estoque, estoque de segurança e estoque em transito
-    material as
-    (
-    SELECT
-        concat(marc.werks,marc.matnr) as 'Chavematerial',
-        marc.werks as 'Planta',
-        marc.matnr as 'Material',
-        makt.maktx as 'Descrição',
-        marc.dispo as 'Planejador',
-    
-        CASE
-            WHEN marc.sobsl IS NULL then marc.werks 
-            WHEN marc.sobsl = "CC" then "BR22" 
-            WHEN marc.sobsl = "C2" then "BR12" 
-            WHEN marc.sobsl = "C0" then "BR10" 
-            WHEN marc.sobsl = "C1" then "BR11" 
-            WHEN marc.sobsl = "CB" then "BR20" 
-            WHEN concat(marc.werks, marc.sobsl) = "BR1230" then "BRPB"
-            WHEN concat(marc.werks, marc.sobsl) = "BR1130" then "POLI"
-            WHEN concat(marc.werks, marc.sobsl) = "BR2530" then "BN"
-                ELSE marc.sobsl 
-        END as 'Produtor',
-    
-        marc.eisbe as 'Estoque_Segurança',
-        marc.trame as 'Transito',
-        estoque.quantidade as 'Estoque',
-        marc.bstmi as 'Batida_minima',
-        marc.bstrf as 'Sacaria',
-        mbew.stprs as 'Preço_Ton',
-    
-        CASE
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "310" then "Piglets" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "311" then "Sow & Hog" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "320" then "Beef" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "321" then "Dairy" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "322" then "Small Ruminants" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "330" then "Meat Poultry" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "331" then "Layers" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "399" then "Other" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "340" then "Equine" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "342" then "Rabbit" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "344" then "Pet Food" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "345" then "Game Animals" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "350" then "Multi Species" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "360" then "Shrimp" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "361" then "Fish" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "002" then "Breeding Herd" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "003" then "Finishing" 
-            WHEN RIGHT(LEFT(mara.prdha,9),3) = "004" then "Other Swine" 
-                ELSE mara.prdha
-        END as 'Classificação'
-
-    FROM prd_product_tc1.mara
-        LEFT JOIN prd_product_tc1.marc ON marc.matnr = mara.matnr
-        LEFT JOIN prd_product_tc1.mbew ON concat(marc.werks, marc.matnr) = concat(mbew.bwkey, mbew.matnr)
-        LEFT JOIN prd_product_tc1.makt ON marc.matnr = makt.matnr
-        LEFT JOIN estoque on concat(marc.werks,marc.matnr) = estoque.Chaveestoque
-    
-    --Filtros considerando plantas BR, itens com inicio F30, desconsidera PI, phantom e reprocesso, desconsidera itens marcados para exclusão ou bloqueados  
-    WHERE 
-        marc.werks LIKE 'BR%'
-        AND mara.matnr LIKE 'F30%'
-        AND mara.matnr NOT LIKE "F30F%"
-        AND mara.matnr NOT LIKE "F30R%"
-        AND mara.matnr NOT LIKE "F30I%"
-        AND marc.mmsta IS NULL
-        AND marc.lvorm != "X"
-        AND makt.spras = "P"
-    ),
-    -- Extraio as bases de linha de produção para cada material de acordo com a planta produtora
-    linhas as
-    (
-    SELECT 
-        material.planta as 'Planta',
-        material.material as 'Material',
-        material.descrição as 'Descrição',
-        material.planejador as 'Planner',
-        material.produtor as 'Produtor',
-        material.estoque_segurança as 'Estoque_Segurança',
-        material.transito as 'Transito',
-        material.estoque as 'Estoque',
-        material.batida_minima as 'Batida_minima',
-        material.sacaria as 'Sacaria',
-        material.preço_ton as 'Preço_Ton',
-        material.classificação as 'Classificação',
-        RIGHT(mkal.verid,1) as 'Linha'
-
-    FROM prd_product_tc1.mkal
-        RIGHT JOIN material on concat(material.produtor,material.material) = concat (mkal.werks, mkal.matnr)
-        
-    WHERE 
-        mkal.werks LIKE 'BR%'
-        AND mkal.verid LIKE '011%'
-    )
+GROUP BY mkal.werks, mkal.matnr
 
 
 SELECT * FROM linhas ORDER BY concat(planta,material) DESC
