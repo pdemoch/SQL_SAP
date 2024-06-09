@@ -1,0 +1,15 @@
+-- Objetivo desse codigo é extrair as quantidades de materia prima que serão utilizadas de acordo com as ordens de produção planejadas
+
+SELECT
+    concat(plaf.pwwrk,plaf.matnr) as 'Chaveplanejado',
+    plaf.pwwrk as 'Planta', 
+    plaf.matnr as 'Material', 
+    sum(plaf.gsmng) as 'Quantidade'
+
+FROM prd_product_tc1.plaf
+
+WHERE 
+    plaf.pwwrk LIKE 'BR%'
+    AND plaf.matnr LIKE 'F30%'
+
+GROUP BY plaf.pwwrk, plaf.matnr
